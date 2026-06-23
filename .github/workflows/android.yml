@@ -1,0 +1,56 @@
+name: Android Build (APK)
+
+# Builds a fully local Android APK on GitHub's runners — NO EAS / Expo cloud involved.
+# Trigger manually from the Actions tab, or automatically on a version tag (v1.0.0, ...).
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Inlined into the JS bundle at build time. MUST include the /api/v1 suffix.
+      EXPO_PUBLIC_API_URL: https://tappay.imadegautama.com/api/v1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Java (JDK 17)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle (with caching)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Generates the native android/ project from app.json (config plugins, package id, icons).
+      # android/ stays gitignored — it's regenerated fresh every run.
+      - name: Prebuild Android project
+        run: npx expo prebuild --platform android --no-install
+
+      # assembleRelease: the Expo/RN template signs the *release* build with the bundled
+      # debug keystore by default, so this APK is installable as-is (good for testing/sideload).
+      # For a real Play Store release, swap in your own keystore (see notes in chat).
+      - name: Build release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tappay-android-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
